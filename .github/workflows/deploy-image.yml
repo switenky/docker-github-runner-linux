@@ -63,36 +63,34 @@ jobs:
             org.opencontainers.image.vendor=${{ github.repository_owner }}
             org.opencontainers.image.version=${{ inputs.runner_version || '2.294.0' }}
 
-      - name: Build Docker image
+      - name: Build Docker image for scanning
         uses: docker/build-push-action@v5
         with:
           context: .
-          platforms: linux/amd64,linux/arm64
+          platforms: linux/amd64
           build-args: |
             RUNNER_VERSION=${{ inputs.runner_version || '2.294.0' }}
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          tags: scan-image:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
           push: false
           load: true
-          target: ${{ github.event_name == 'pull_request' && 'final' || '' }}
 
       - name: Run Trivy vulnerability scanner
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@0.28.0
         with:
-          image-ref: ${{ fromJSON(steps.meta.outputs.json).tags[0] }}
+          image-ref: scan-image:latest
           format: 'sarif'
           output: 'trivy-results.sarif'
           severity: 'CRITICAL,HIGH'
 
       - name: Upload Trivy scan results to GitHub Security tab
-        uses: github/codeql-action/upload-sarif@v3
-        if: always()
+        uses: github/codeql-action/upload-sarif@v4
+        if: always() && hashFiles('trivy-results.sarif') != ''
         with:
           sarif_file: 'trivy-results.sarif'
 
-      - name: Push Docker image
+      - name: Build and push multi-platform image
         if: github.event_name != 'pull_request'
         uses: docker/build-push-action@v5
         with:
