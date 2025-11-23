@@ -6,7 +6,7 @@ on:
       runner_version:
         description: 'GitHub Actions Runner Version'
         required: false
-        default: '2.294.0'
+        default: '2.329.0'
         type: string
   push:
     branches: [ main, master ]
@@ -61,7 +61,7 @@ jobs:
             org.opencontainers.image.title=GitHub Self-Hosted Runner
             org.opencontainers.image.description=Docker container for GitHub Actions self-hosted runner
             org.opencontainers.image.vendor=${{ github.repository_owner }}
-            org.opencontainers.image.version=${{ inputs.runner_version || '2.294.0' }}
+            org.opencontainers.image.version=${{ inputs.runner_version || '2.329.0' }}
 
       - name: Build Docker image for scanning
         uses: docker/build-push-action@v5
@@ -69,7 +69,7 @@ jobs:
           context: .
           platforms: linux/amd64
           build-args: |
-            RUNNER_VERSION=${{ inputs.runner_version || '2.294.0' }}
+            RUNNER_VERSION=${{ inputs.runner_version || '2.329.0' }}
           tags: scan-image:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
@@ -97,7 +97,7 @@ jobs:
           context: .
           platforms: linux/amd64,linux/arm64
           build-args: |
-            RUNNER_VERSION=${{ inputs.runner_version || '2.294.0' }}
+            RUNNER_VERSION=${{ inputs.runner_version || '2.329.0' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
@@ -112,7 +112,7 @@ jobs:
           echo "### Image Details" >> $GITHUB_STEP_SUMMARY
           echo "- **Registry**: \`${{ env.REGISTRY }}\`" >> $GITHUB_STEP_SUMMARY
           echo "- **Repository**: \`${{ env.IMAGE_NAME }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- **Runner Version**: \`${{ inputs.runner_version || '2.294.0' }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Runner Version**: \`${{ inputs.runner_version || '2.329.0' }}\`" >> $GITHUB_STEP_SUMMARY
           echo "- **Platforms**: \`linux/amd64\`, \`linux/arm64\`" >> $GITHUB_STEP_SUMMARY
           echo "- **Commit**: \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY

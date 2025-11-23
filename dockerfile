@@ -6,10 +6,7 @@ ARG RUNNER_VERSION
 ARG TARGETARCH
 ENV DEBIAN_FRONTEND=noninteractive
 
-LABEL Author="Marcel L"
-LABEL Email="pwd9000@hotmail.co.uk"
-LABEL GitHub="https://github.com/Pwd9000-ML"
-LABEL BaseImage="ubuntu:20.04"
+LABEL BaseImage="ubuntu:24.04"
 LABEL RunnerVersion=${RUNNER_VERSION}
 
 # update the base packages + add a non-sudo user
