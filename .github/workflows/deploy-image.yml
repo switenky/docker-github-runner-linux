@@ -4,20 +4,22 @@ on:
   workflow_dispatch:
     inputs:
       runner_version:
-        description: 'GitHub Actions Runner Version'
+        description: 'GitHub Actions Runner Version (leave empty for latest)'
         required: false
-        default: '2.329.0'
         type: string
+  schedule:
+    # Check for new runner versions every 15 days at 06:00 UTC
+    - cron: '0 6 */15 * *'
   push:
     branches: [ main, master ]
     paths:
-      - 'dockerfile'
+      - 'Dockerfile'
       - 'scripts/**'
       - '.github/workflows/deploy-image.yml'
   pull_request:
     branches: [ main, master ]
     paths:
-      - 'dockerfile'
+      - 'Dockerfile'
       - 'scripts/**'
 
 env:
@@ -36,11 +38,44 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Get latest runner version
+        id: runner-version
+        run: |
+          if [ -n "${{ inputs.runner_version }}" ]; then
+            RUNNER_VERSION="${{ inputs.runner_version }}"
+          else
+            RUNNER_VERSION=$(curl -s https://api.github.com/repos/actions/runner/releases/latest | jq -r '.tag_name' | sed 's/^v//')
+          fi
+          echo "version=${RUNNER_VERSION}" >> $GITHUB_OUTPUT
+          echo "Using runner version: ${RUNNER_VERSION}"
+
+      - name: Check if version already exists
+        id: check-version
+        if: github.event_name == 'schedule'
+        run: |
+          # Check if this version tag already exists in the registry
+          if docker manifest inspect ghcr.io/${{ github.repository }}:${{ steps.runner-version.outputs.version }} >/dev/null 2>&1; then
+            echo "Version ${{ steps.runner-version.outputs.version }} already exists, skipping build"
+            echo "skip=true" >> $GITHUB_OUTPUT
+          else
+            echo "New version ${{ steps.runner-version.outputs.version }} detected, proceeding with build"
+            echo "skip=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Skip build notification
+        if: steps.check-version.outputs.skip == 'true'
+        run: |
+          echo "## ⏭️ Build Skipped" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Runner version \`${{ steps.runner-version.outputs.version }}\` already exists in the registry." >> $GITHUB_STEP_SUMMARY
+          echo "No new image will be built." >> $GITHUB_STEP_SUMMARY
+
       - name: Set up Docker Buildx
+        if: steps.check-version.outputs.skip != 'true'
         uses: docker/setup-buildx-action@v3
 
       - name: Log in to GitHub Container Registry
-        if: github.event_name != 'pull_request'
+        if: github.event_name != 'pull_request' && steps.check-version.outputs.skip != 'true'
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
@@ -49,6 +84,7 @@ jobs:
 
       - name: Extract metadata
         id: meta
+        if: steps.check-version.outputs.skip != 'true'
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
@@ -56,20 +92,21 @@ jobs:
             type=ref,event=branch
             type=ref,event=pr
             type=raw,value=latest,enable={{is_default_branch}}
-            type=raw,value=${{ inputs.runner_version || '2.294.0' }},enable={{is_default_branch}}
+            type=raw,value=${{ steps.runner-version.outputs.version }},enable={{is_default_branch}}
           labels: |
             org.opencontainers.image.title=GitHub Self-Hosted Runner
             org.opencontainers.image.description=Docker container for GitHub Actions self-hosted runner
             org.opencontainers.image.vendor=${{ github.repository_owner }}
-            org.opencontainers.image.version=${{ inputs.runner_version || '2.329.0' }}
+            org.opencontainers.image.version=${{ steps.runner-version.outputs.version }}
 
       - name: Build Docker image for scanning
+        if: steps.check-version.outputs.skip != 'true'
         uses: docker/build-push-action@v5
         with:
           context: .
           platforms: linux/amd64
           build-args: |
-            RUNNER_VERSION=${{ inputs.runner_version || '2.329.0' }}
+            RUNNER_VERSION=${{ steps.runner-version.outputs.version }}
           tags: scan-image:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
@@ -77,6 +114,7 @@ jobs:
           load: true
 
       - name: Run Trivy vulnerability scanner
+        if: steps.check-version.outputs.skip != 'true'
         uses: aquasecurity/trivy-action@0.28.0
         with:
           image-ref: scan-image:latest
@@ -86,18 +124,18 @@ jobs:
 
       - name: Upload Trivy scan results to GitHub Security tab
         uses: github/codeql-action/upload-sarif@v4
-        if: always() && hashFiles('trivy-results.sarif') != ''
+        if: always() && hashFiles('trivy-results.sarif') != '' && steps.check-version.outputs.skip != 'true'
         with:
           sarif_file: 'trivy-results.sarif'
 
       - name: Build and push multi-platform image
-        if: github.event_name != 'pull_request'
+        if: github.event_name != 'pull_request' && steps.check-version.outputs.skip != 'true'
         uses: docker/build-push-action@v5
         with:
           context: .
           platforms: linux/amd64,linux/arm64
           build-args: |
-            RUNNER_VERSION=${{ inputs.runner_version || '2.329.0' }}
+            RUNNER_VERSION=${{ steps.runner-version.outputs.version }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
@@ -105,14 +143,14 @@ jobs:
           push: true
 
       - name: Generate deployment summary
-        if: github.event_name != 'pull_request'
+        if: github.event_name != 'pull_request' && steps.check-version.outputs.skip != 'true'
         run: |
           echo "## 🚀 Deployment Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Image Details" >> $GITHUB_STEP_SUMMARY
           echo "- **Registry**: \`${{ env.REGISTRY }}\`" >> $GITHUB_STEP_SUMMARY
           echo "- **Repository**: \`${{ env.IMAGE_NAME }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- **Runner Version**: \`${{ inputs.runner_version || '2.329.0' }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Runner Version**: \`${{ steps.runner-version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
           echo "- **Platforms**: \`linux/amd64\`, \`linux/arm64\`" >> $GITHUB_STEP_SUMMARY
           echo "- **Commit**: \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
